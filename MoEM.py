@@ -1,4 +1,3 @@
-import torch.nn as nn
 import numpy as np
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.model_selection import train_test_split
@@ -40,57 +39,77 @@ class ExpertDecisionTree:
 
 
 
-class GatingNetwork(nn.Module):
-    def __init__(self, input_size, num_experts):
-        super(GatingNetwork, self).__init__()
-        self.fc = MLPClassifier(hidden_layer_sizes=(100, num_experts), activation='relu', max_iter=1000)
+class MLPGateModel:
+    def __init__(self, num_experts, input_dim):
+        self.gate_model = MLPClassifier(hidden_layer_sizes=(100, num_experts), activation='logistic', max_iter=1000)
 
-    def train_gating(self, X, labels):
-        self.fc.fit(X, labels)
+    def train(self, X, y):
+        self.gate_model.fit(X, y)
 
-    def predict(self, X):
-        return self.fc.predict_proba(X)
+    def get_expert_weights(self, X):
+        gate_probabilities = self.gate_model.predict_proba(X)
+        return gate_probabilities
+
 class MixtureExperts:
     def __init__(self, num_experts, num_classes):
         self.experts = [ExpertDecisionTree(num_classes) for _ in range(num_experts)]
-        self.gating = GatingNetwork(input_size=X_train.shape[1], num_experts=num_experts)
+        self.gating = MLPGateModel(num_experts=num_experts, input_dim=X_train.shape[1])
         self.num_experts = num_experts
         self.num_classes = num_classes
 
     def fit(self, X, y):
         kmeans = KMeans(n_clusters=self.num_experts, random_state=42).fit(X)
         labels = kmeans.labels_
-        data_per_expert = [None] * self.num_experts
         
-
         # Train the gating network with X and labels as targets
-        self.gating.train_gating(X, labels)
-        # Divide data among experts based on cluster labels
+        self.gating.train(X, labels)
+
         data_per_expert = [None] * self.num_experts  # Initialize an empty list
+
+        # Divide data among experts based on cluster labels
         for i in range(self.num_experts):
             idx = np.where(labels == i)  # Get indices of data points in the current cluster
             X_expert, y_expert = X[idx], y[idx]
             data_per_expert[i] = (X_expert, y_expert)
+
         # Train experts with gating weights
         for idx, expert in enumerate(self.experts):
-            X_expert, y_expert = data_per_expert[idx]       
+            X_expert, y_expert = data_per_expert[idx]
             expert.fit(X_expert, y_expert)
+            
+            
     def predict(self, X):
-        gating_weights = self.gating.predict(X)
-        print("+++++++++++++++++ gatting weight++++++++++++++++++++++++")
-        print(gating_weights)
-        expert_outputs = []
+       gating_weights = self.gating.get_expert_weights(X)
+       expert_outputs = []
 
-        for idx, expert in enumerate(self.experts):
-            expert_outputs_expert = expert.predict(X)
-            weighted_expert_outputs = expert_outputs_expert * gating_weights[:, idx][:, np.newaxis]
-            expert_outputs.append(weighted_expert_outputs)
-            print("++++++++++++++++++++ expert outputs +++++++++++")
-            print(expert_outputs_expert)
-        final_predictions = np.sum(expert_outputs, axis=0)
-        print("+++++++++++++++++++pred ++++++++++++++++++++++")
-        print(final_predictions)
-        return np.argmax(final_predictions, axis=1)
+    # Wählen Sie die Experten basierend auf den Wahrscheinlichkeiten aus
+       selected_experts = np.argmax(gating_weights, axis=1)
+       print(selected_experts)
+
+       expert_predictions = []
+
+       for i in range(X.shape[0]):
+           gating_weight = gating_weights[i]
+           expert_idx = np.argmax(gating_weight)
+           expert = self.experts[expert_idx]
+  
+           expert_outputs_expert = expert.predict(X[i].reshape(1, -1))
+           expert_predictions.append(expert_outputs_expert)
+
+       expert_predictions = np.vstack(expert_predictions)  # Stapeln Sie die Experten-Vorhersagen vertikal
+       final_predictions = np.argmax(expert_predictions, axis=1)  # Wählen Sie die Klasse mit der höchsten Wahrscheinlichkeit
+
+       return final_predictions
+         
+
+
+    
+                             
+   
+
+      
+
+               
 
 
 
@@ -98,13 +117,15 @@ class MixtureExperts:
 
 
 # Instantiate and train the model
-moe = MixtureExperts(num_experts=2, num_classes=3)
+moe = MixtureExperts(num_experts=3, num_classes=3)
 moe.fit(X_train, y_train)
 
 # Evaluate the model
 y_pred = moe.predict(X_test)
+print(y_pred)
 
 accuracy = accuracy_score(y_test, y_pred)
 f1= f1_score(y_test, y_pred,average='macro')
 print("+++++++++++++Accuracy++++++++++++:", accuracy)
 print("+++++++++++++macro F1 score++++++++++++:",f1) 
+
