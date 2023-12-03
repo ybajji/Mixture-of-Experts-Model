@@ -56,8 +56,8 @@ class MixtureOfExperts(nn.Module):
         y_train = torch.tensor(y, dtype=torch.float64)
         X_train = torch.tensor(x, dtype=torch.float64)
 
-        kmeans = KMeans(n_clusters=3, n_init=10)
-        clusters = kmeans.fit_predict(X_train[:, [5, 6, 7]])
+        kmeans = KMeans(n_clusters=self.n_expert, n_init=10)
+        clusters = kmeans.fit_predict(X_train)
 
         for i in range(self.n_expert):
             self.experts[i].fit(X_train[clusters == i], y_train[clusters == i])
@@ -107,7 +107,7 @@ X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, r
 
 
 # Create and train the regression model
-model = MixtureOfExperts(n_inputs=8, n_experts=3)
+model = MixtureOfExperts(n_inputs=X.shape[1], n_experts=3)
 model.train(X_train, y_train)
 
 # Make predictions using the model and convert to NumPy
